@@ -1,4 +1,5 @@
 # macropy
+
 macro.py is offered in the hope it might be useful.
 
 It is invoked as follows :
