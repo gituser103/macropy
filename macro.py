@@ -20,6 +20,14 @@ txpatt = re.compile('[a-zA-Z0-9_]')
 pattInclude = re.compile('^#[\t ]*include[\t ]+["]([a-zA-Z0-9_/\.]+)["]')
 pattDefine =  re.compile('^#[\t ]*define[\t ]+([a-zA-Z0-9_]+)[\t ]*(.*)$')
 
+def matchDelim(tok):
+  if tok == '(':
+     return ')'
+  if tok == '[':
+     return ']'
+  if tok == '{':
+     return '}'
+  return ''
 
 def iscontinued(token):
   tok = token.strip()
@@ -86,15 +94,17 @@ def get_line(ipf):
      isMacro = macrodefpatt.match(p_l)
      if isMacro:
        pushback = p_l        #  we have read too far
-       rawline[-2] = " "       #  fix erroneous last char
-       rawline = rawline + '\n'
+#       rawline[-2] = " "       #  fix erroneous last char
+#       rawline = rawline + '\n'
+       rawline = rawline[:-2] + " \n"
        lastchar = " "
      else:
        rawline = rawline + p_l
        lastchar = rawline[-2]
 # do not return a continuation line
   if iscontinued(rawline[-2]):
-      rawline[-2] = " "
+       rawline = rawline[:-2] + " "
+#      rawline[-2] = " "
 #      rawline = rawline + '\n'
   return rawline
 
@@ -105,33 +115,7 @@ def isquote(character):
     if character == "0x27":
         return 1
     return 0
-
-
-def xlateMacroParam(characterGroup, macroArguments):
-# fixme comments needed
-    found = 0
-    argEntry = []
-    #  print('entered xlate')
-    # argEntry[0] is a string
-    # argEntry[1] is the translation
-    # if the string is found, return the translation
-    # else return the string
-    for entry in macroArguments:
-        argEntry = entry
-        if argEntry[0] == ',':
-            continue
-        if argEntry[0] == characterGroup:
-            found = 1
-            break
-    if found:
-#        if argEntry[0] == argEntry[1]:
-#            return ""
-#        else:
-            return argEntry[1]
-    else:
-        return characterGroup
-
-
+    
 def trieSearch(searchlist):
     # finds longest match
     # searcharray[0] is the search field you are trying to match
@@ -146,15 +130,21 @@ def trieSearch(searchlist):
 # too few arguments
 
     list1 = searchlist
+    list1_0_len = len(list1[0])
+    lenlist1 = [list1_0_len]  # element zero is a constant
+    for listindex in range(1, len(list1)):
+        lenlist1.append(len(list1[listindex])) # build list of lengths
+    # list of lenths of corresponding elements in list1
     found = []  # accumulate matches by string length
     characterIndex = 0
 
     # searchlist[0] is the item you are seeking to match
     # searchlist[1:] is the list of possible matches
 
-    while (len(list1) > 1) and (characterIndex < len(list1[0])):
+    while (len(list1) > 1) and (characterIndex < list1_0_len):
         list2 = [list1[0]]
-        while len(list1[0]) > characterIndex:
+        lenlist2 = [list1_0_len]
+        while list1_0_len > characterIndex:
             # characterIndex iterates over chars to be matched
 
             # list2 is the output from the search pass
@@ -162,35 +152,72 @@ def trieSearch(searchlist):
 
             for listindex in range(1, len(list1)):
                 # listindex iterates over fields to be matched
-                if (len(list1[listindex]) > characterIndex) and (len(
-                        list1[0]) > characterIndex):
+                if (lenlist1[listindex] > characterIndex) and (list1_0_len > characterIndex):
                     # if lengths are in range
                     if list1[0][characterIndex] == list1[listindex][
                             characterIndex]:
                         # and corresponding chars match for this pass
                         list2.append(list1[listindex])
+                        lenlist2.append(lenlist1[listindex])
 # list2 has matches for this pass
 #                list2 is a list of matches for the latest pass
 
             list1 = list2
+            lenlist1 = lenlist2
             list2 = [list1[0]]
+            lenlist2 = [list1_0_len]
             characterIndex = characterIndex + 1
             # iterate over list1[1] - list1[end]
             # if list1[entry] has all its characters matched
             # add list1[entry] to the list of matches found
             # the longest match is the latest one to be added to the list
             for sindex in range(1, len(list1)):
-                if len(list1[sindex]) == characterIndex:
+                if lenlist1[sindex] == characterIndex:
                     found.append(list1[sindex])
 
 
 # entry has been fully matched
 
-# characterIndex now equal to len(list1[0]) which is a match
-# or characterIndex is less than len(list1[0]) which is no match and
+# characterIndex now equal to list1_0_len which is a match
+# or characterIndex is less than list1_0_len which is no match and
 # return the longest match or null
 
     return found
+    
+
+
+def xlateMacroParam(characterGroup, macroArguments):
+# characterGroup is matched against the parameter names given in the macro definition
+# if characterGroup is a parameter name, the translation of the parameter is returned
+# 
+    found = 0
+    # argEntry is an array of 3 elements
+    argEntry = []
+    #  print('entered xlateMacroParam')
+    # argEntry[0] is a string
+    # argEntry[1] is the translation
+    # argEntry[2] is the default translation
+    # if the string is found, return the translation
+    # if no translation specified, return the default value
+    # else return the string
+    for entry in macroArguments:
+        argEntry = entry
+        if argEntry[0] == ',':                      # we do not translate commas
+            continue
+        if argEntry[0] == characterGroup:
+            found = 1
+            break
+    if found:
+         if  argEntry[1]:                                                      # return translation
+              return argEntry[1]
+         else:
+              return argEntry[2]                                         # or the default translation
+#         elif argEntry[2]:
+#              return argEntry[2]
+    else:
+        return characterGroup
+
+
 
 
 def xlateCharacters(inputLine):
@@ -215,6 +242,7 @@ def processInputLine(inputLine):
     # scan for first macro name, else copy chars to output
 #    global macroNameStack
 # used to prevent recursive macro calls
+    global processComplete
     macroNameStack = []
     macroCallDepth = 0       #  depth of macro calls
     outputString = ""
@@ -241,13 +269,13 @@ def processInputLine(inputLine):
 #  consume characterGroup
         while len(characterGroup) > 0:
             #                 testtoken is a list
-            isValid = False
+            processComplete = False
             testtoken = ismacro(characterGroup)   # testtoken is a list, either null, or a macro in list form
             # macro name will be (leading) chars of characterGroup
             if testtoken:
-                 inputLine, isValid = processMacro(testtoken, inputLine, svidx)
+                 inputLine = processMacro(testtoken, inputLine, svidx)
 #                 print('1',inputLine)         #debug fixme
-                 if isValid:                      # found valid macro expansion which is prepended to input line
+                 if processComplete:                      # found valid macro expansion which is prepended to input line
                       macroCallDepth += 1
                       if macroCallDepth > 40:  # presumed recursive macro call
                             print(msgHeader, 'recursive macro call')
@@ -354,7 +382,7 @@ def processMacroBody(macroBody, macroArguments):
 def chomp(s1, s2):
     #subtract string 1 from string 2
     if len(s1) > len(s2):
-        return ''
+        return ""
 
 
 # string 1 longer than string 2
@@ -369,8 +397,7 @@ def chomp(s1, s2):
         s3 = s3 + s2[idx]
         idx += 1
     return s3
-
-
+    
 def processMacro(currentMacro, inputLine, svidx):
     ## inputLine is the input line to be parsed
     ## reduce inputLine
@@ -378,39 +405,55 @@ def processMacro(currentMacro, inputLine, svidx):
     ## then prepend macro expansion to inputLine
     ## return inputLine
     ##  print(inputLine)      #debug
-    if currentMacro:
-        workMacro = {
-            'mname': currentMacro[0],
-            'margs': currentMacro[1],
-            'mbody': currentMacro[2]
-        }
+    global processComplete
+    processComplete = False
     inputLine_save = inputLine
     inputLine = inputLine[svidx:]
+    workMacro = {
+            'mname': '',
+            'margs': '',
+            'mbody': ''
+            }
+
+    if currentMacro:
+        if len(currentMacro) > 0:
+            workMacro['mname'] = currentMacro[0]
+        else:
+            return inputLine        
+        if len(currentMacro) > 1:
+            workMacro['margs'] = currentMacro[1]    
+        if len(currentMacro) > 2:
+            workMacro['mbody'] = currentMacro[2]    
+    else:
+        return inputLine  
     ## point to the beginning of the macro
-    if workMacro['mname']:
-        inputLine = chomp(workMacro['mname'], inputLine)
+    if currentMacro[0]:
+        inputLine = chomp(currentMacro[0], inputLine)
 # if macro name in db, remove macro name from processing line
     peek = ""
     # test for macro with parameters
-    if len(workMacro['margs']) > 0:
+    if len(currentMacro[1]) > 0:
         if len(inputLine) > 0:
             # if some inputLine
             peek = inputLine[0]
             # look for ( to mark arguments to follow
             if peek != '(':
-                print(msgHeader,'macro ', workMacro['mname'], ' missing arguments')
-                print(msgHeader,'at ', inputLine_save)
-                return  inputLine_save, False
+#                print(msgHeader,'macro ', currentMacro[0], ' missing arguments')
+#                print(msgHeader,'at ', inputLine_save)
+                processComplete = False
+                return  inputLine_save
         else:
             # no more input
-            print(msgHeader,'macro ', workMacro['mname'], ' missing arguments')
-            print(msgHeader,'at ', inputLine_save)
-            return  inputLine_save, False
-# quote macro name to avoid loops
+#            print(msgHeader,'macro ', currentMacro[0], ' missing arguments')
+#            print(msgHeader,'at ', inputLine_save)
+            processComplete = False
+            return  inputLine_save
+# 
     else:
         # no parameters
-        inputLine = workMacro['mbody'] + inputLine
-        return inputLine, True
+        inputLine = currentMacro[2] + inputLine
+        processComplete = True
+        return inputLine
 # simple macro expansion replaces macro name
 
 # we have macro defined with parameters
@@ -432,7 +475,8 @@ def processMacro(currentMacro, inputLine, svidx):
         print(msgHeader,'get macro parameters on input line')
         print(msgHeader,'imbalanced brackets')
         print(msgHeader,inputLine)
-        return inputLine_save, False
+        processComplete = False
+        return inputLine_save
 # fix to prevent loops                                 fixme
 
 # remove arguments from input line
@@ -466,7 +510,8 @@ def processMacro(currentMacro, inputLine, svidx):
                 print(msgHeader,'get macro parameters on input line')
                 print(msgHeader,'imbalanced brackets')
                 print(msgHeader,inputLine)
-                return inputLine_save, False
+                processComplete = False
+                return inputLine_save
         # have we exhausted input?
             if idx >= len(userGivenMacroArgs):
                 userGivenMacroArgList.append(paramString.strip())
@@ -504,7 +549,8 @@ def processMacro(currentMacro, inputLine, svidx):
             else:
                 print(msgHeader,'unbalanced quotes on input line')
                 print(msgHeader,inputLine)
-                return inputLine_save, False
+                processComplete = False
+                return inputLine_save
             if idx >= len(userGivenMacroArgs):
                 userGivenMacroArgList.append(paramString)
                 paramString = ""
@@ -526,20 +572,60 @@ def processMacro(currentMacro, inputLine, svidx):
 # commas are significant
     macroDefinedArgs = workMacro['margs'][1:-1]
     #  drop enclosing brackets
-    mlist = []  # parse macro parameters to macro parameter list
+    mlist = []  # parse macro parameters given in macro definition  to macro parameter list
+    defaultList = []   # for default parameter values
     pstring = ""
     idx = 0
-    while idx < len(macroDefinedArgs):
+    while idx < len(macroDefinedArgs):            # building a list of args given in macro definition
         tok = macroDefinedArgs[idx]
-        if tok != ',':
+        if ( tok != ',') and ( tok != '='):
             pstring = pstring + tok
-        else:
-            mlist.append(pstring.strip())
+        else:                                                                    # end of current token
+            mlist.append(pstring.strip())         # we are needlessly adding a trailing comma - fixme
             pstring = ""
             mlist.append(',')
+            if tok != '=':
+                defaultList.append('')
+                defaultList.append(',')
+            else: # we have a default value
+                 defaultString = ""
+                 delimStack = []
+                 quotedString = ''
+                 svQuote = ''
+                 idx += 1
+                 while idx < len(macroDefinedArgs):
+                     tok = macroDefinedArgs[idx]
+                     if (tok == ',') and (len(delimStack) < 1):
+                        break     # end of default parameter
+                     if isquote(tok):
+                         quotedString = tok
+                         svQuote = tok
+                         idx += 1
+                         while (idx < len(macroDefinedArgs)) and (macroDefinedArgs[idx]
+                                                       != svQuote):
+                               quotedString = quotedString + macroDefinedArgs[idx]
+                               idx += 1
+                         if idx < len(macroDefinedArgs):
+                              quotedString = quotedString + macroDefinedArgs[idx]  # trailing quote
+                         defaultString = defaultString + quotedString
+                     elif tok == ')' or tok == ']' or tok == '\}':
+                         if delimStack[-1] == tok:
+                             del delimStack[-1]
+                         else:
+                             print(msgHeader, 'delimeter stack out of sync')
+                             print(msgHeader, 'token ', tok, ' stack ', delimStack)
+                     elif tok =='(' or tok == '[' or tok == '\{':
+                             delimStack.append(matchDelim(tok))
+                     defaultString = defaultString + tok
+                     idx += 1  
+                 defaultList.append(defaultString)
+                 defaultList.append(',')
         idx += 1
-    if pstring:
+    if pstring:                                                             # for trailing argument, if any
         mlist.append(pstring.strip())
+        defaultList.append('')
+    if len(mlist) != len(defaultList):
+         print(msgHeader, "mlist, defaultList mismatch ", str(len(mlist)), " ", str(len(defaultList)))
 
 # test userGivenMacroArgList for trailing , and delete
 #    print(userGivenMacroArgList)
@@ -550,24 +636,27 @@ def processMacro(currentMacro, inputLine, svidx):
     macroArguments = []
     idx = 0
     while idx < len(mlist):
-        m1 = mlist[idx]
+        m1 = mlist[idx]                                                  # m1 is placeholder parameter in the macro definition
+        m3 = defaultList[idx]                                    # m3 is default for this parameter
         if idx < len(userGivenMacroArgList):
-            m2 = userGivenMacroArgList[idx]
+            m2 = userGivenMacroArgList[idx]    # m2 is user-given parameter in the macro call
         else:
             m2 = ""
-        macroArguments.append([m1, m2])
+        macroArguments.append([m1, m2, m3])  # third entry is for default args
         # build list of lists
         idx += 1
     if idx < len(userGivenMacroArgList):
-        print(msgHeader,'macro ', workMacro['mname'], ' too many calling parameters')
+        print(msgHeader,'macro ', currentMacro[0], ' too many calling parameters')
         print(msgHeader,'expected ', mlist)
         print(msgHeader,'found    ', userGivenMacroArgList)
-        return inputLine_save, False
+        processComplete = False
+        return inputLine_save
 
     x_l = workMacro['mbody']
     xpandedBody = processMacroBody(x_l, macroArguments)
     inputLine = xpandedBody + inputLine
-    return inputLine, True                     # valid macro call is expanded and prepended to input line
+    processComplete = True
+    return inputLine                    # valid macro call is expanded and prepended to input line
 
 
 def ismacro(characterGroup):
@@ -604,7 +693,11 @@ def ismacro(characterGroup):
 
 
 def isMacroParameter(characterGroup, macroArguments):
-
+# search in the macro body for a parameter name from the macro definition
+# macroArguments is an array composed of entries of three elements each
+# parameter name defined in macro definition
+# user substitution for that name or characters
+# default value for that name, if no user value given
     searchlist = [characterGroup]
     found = []
     for idx in range(0, len(macroArguments)):
@@ -674,7 +767,7 @@ def main():
       exit(0)
     if not getfile(input_file_name):
         print(msgHeader,'cannot access first file given')
-        system.exit(0)   
+        exit(0)   
 # we have the first file put to ipfstack and filename stack
     while len(ipfstack) > 0:
 
@@ -703,8 +796,10 @@ def main():
             fn =   fnamestack.pop(-1)                             # is discarded
             eofind = False
     return
-if __name__ == "__main__":
+
+if __name__=='__main__':
     main()
+
 
 
 
