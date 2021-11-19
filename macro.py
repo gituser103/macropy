@@ -788,7 +788,7 @@ def main():
                 mbody   = matchobj.group(2)
                 buildMacro(mname,mbody)
                 continue
-            print(processInputLine(p_l), end='')
+            sys.stdout.write(processInputLine(p_l))  # we do not want a newline character to be appended
             
         ipfstack[-1].close()
         if len(ipfstack) > 0:

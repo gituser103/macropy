@@ -3,6 +3,9 @@ macro.py is offered in the hope it might be useful.
 It is invoked as follows :  
   
 python3 macro.py input_file  
+or  
+python2 macro.py input_file  
+ 
 which presumes that both the macro.py program and the input file are in the working directory.  
 output goes to stdout.  
   
@@ -19,6 +22,9 @@ example_macro(A,B,C)
 which gives  
  print(C,A,B)  
 Please note the leading space. This is in the definition of example_macro.  
+Spaces are significant    
+  
+  
 The definition is composed of:  
       the \#define keyword, followed by a space  
       the macro name example_macro  
@@ -28,6 +34,8 @@ The definition is composed of:
       When the macro is invoked with parameters a corresponding text substitution is made.  
   
 I have used macro.py on C source files to expand complex macros in a readable fashion.  
+The program macro.py is written in a subset of Python 2. I have successfully translated the source code into C++ code using the program shedskin.  
+ 
 It may be necessary to strip comments from the source  
 before invoking macro.py. This can be achieved on Linux as follows:  
   
